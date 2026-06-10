@@ -1,0 +1,40 @@
+name: Sync Favorite Addons
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  sync-favorite-addons:
+    name: Sync Favorite Addons
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Sync Favorites
+        run: |
+          # Use yq to safely handle potential empty files
+          if [ -s favorites.yaml ]; then
+            repos=$(yq eval '.repositories[] | .name + "|" + .url + "|" + .destination' favorites.yaml)
+            for entry in $repos; do
+              name=$(echo $entry | cut -d'|' -f1)
+              url=$(echo $entry | cut -d'|' -f2)
+              dest=$(echo $entry | cut -d'|' -f3)
+
+              echo "Syncing Favorite: $name from $url to $dest"
+              if [ -d "$dest/.git" ]; then
+                git -C "$dest" pull
+              else
+                mkdir -p "$(dirname "$dest")"
+                git clone "$url" "$dest"
+              fi
+            done
+          else
+            echo "favorites.yaml is empty or missing, skipping."
+          fi

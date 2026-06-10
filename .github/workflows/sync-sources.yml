@@ -1,0 +1,35 @@
+name: Sync Source pre Compile
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  sync-source-pre-compile:
+    name: Sync Source pre Compile
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Sync Sources
+        run: |
+          repos=$(yq eval '.repositories[] | .name + "|" + .url + "|" + .destination' sources.yaml)
+          for entry in $repos; do
+            name=$(echo $entry | cut -d'|' -f1)
+            url=$(echo $entry | cut -d'|' -f2)
+            dest=$(echo $entry | cut -d'|' -f3)
+
+            echo "Syncing Source: $name from $url to $dest"
+            if [ -d "$dest/.git" ]; then
+              git -C "$dest" pull
+            else
+              mkdir -p "$(dirname "$dest")"
+              git clone "$url" "$dest"
+            fi
+          done
