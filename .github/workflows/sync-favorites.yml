@@ -38,3 +38,15 @@ jobs:
           else
             echo "favorites.yaml is empty or missing, skipping."
           fi
+
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add favorites/
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "chore: sync favorites"
+            git push
+          else
+            echo "No changes to commit."
+          fi

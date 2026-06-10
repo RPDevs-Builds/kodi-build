@@ -8,7 +8,7 @@ env:
 
 jobs:
   sync-source-pre-compile:
-    name: Sync Source pre Compile
+    name: Sync Tools
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,7 +25,7 @@ jobs:
             url=$(echo $entry | cut -d'|' -f2)
             dest=$(echo $entry | cut -d'|' -f3)
 
-            echo "Syncing Source: $name from $url to $dest"
+            echo "Syncing Tools: $name from $url to $dest"
             if [ -d "$dest/.git" ]; then
               git -C "$dest" pull
             else
@@ -33,15 +33,3 @@ jobs:
               git clone "$url" "$dest"
             fi
           done
-
-      - name: Commit changes
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add source/
-          if ! git diff-index --quiet HEAD --; then
-            git commit -m "chore: sync sources"
-            git push
-          else
-            echo "No changes to commit."
-          fi
