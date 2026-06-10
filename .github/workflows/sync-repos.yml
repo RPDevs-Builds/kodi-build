@@ -1,0 +1,36 @@
+name: Sync Repositories
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Sync Repositories
+        run: |
+          # Read repositories from repos.yaml
+          repos=$(yq eval '.repositories[] | .name + "|" + .url + "|" + .destination' repos.yaml)
+
+          for entry in $repos; do
+            name=$(echo $entry | cut -d'|' -f1)
+            url=$(echo $entry | cut -d'|' -f2)
+            dest=$(echo $entry | cut -d'|' -f3)
+
+            echo "Syncing $name from $url to $dest"
+
+            if [ -d "$dest/.git" ]; then
+              echo "Repository exists, pulling latest changes..."
+              git -C "$dest" pull
+            else
+              echo "Repository not found, cloning..."
+              mkdir -p "$(dirname "$dest")"
+              git clone "$url" "$dest"
+            fi
+          done

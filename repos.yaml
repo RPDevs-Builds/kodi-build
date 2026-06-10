@@ -1,0 +1,4 @@
+repositories:
+  - name: kodi
+    url: https://github.com/xbmc/xbmc.git
+    destination: source/kodi
