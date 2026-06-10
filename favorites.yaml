@@ -1,4 +1,6 @@
 repositories:
-  - name: kodi
-    url: https://github.com/xbmc/xbmc.git
-    destination: source/kodi
+  # Add your favorite repositories here.
+  # Example:
+  # - name: example-repo
+  #   url: https://github.com/user/example-repo.git
+  #   destination: favorites/example-repo
