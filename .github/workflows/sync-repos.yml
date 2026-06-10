@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  sync-sources:
+  sync-source-pre-compile:
+    name: Sync Source pre Compile
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -30,7 +31,8 @@ jobs:
             fi
           done
 
-  sync-favorites:
+  sync-favorite-addons:
+    name: Sync Favorite Addons
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
