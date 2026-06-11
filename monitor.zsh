@@ -35,7 +35,7 @@ while true; do
         fi
 
         id=$(echo $run_data | jq -r '.[0].databaseId')
-        status=$(echo $run_data | jq -r '.[0].status')
+        run_status=$(echo $run_data | jq -r '.[0].status')
         conclusion=$(echo $run_data | jq -r '.[0].conclusion')
         title=$(echo $run_data | jq -r '.[0].displayTitle')
 
@@ -52,11 +52,11 @@ while true; do
         fi
 
         icon="🟡"
-        [[ "$status" == "completed" && "$conclusion" == "success" ]] && icon="✅"
-        [[ "$status" == "completed" && "$conclusion" == "failure" ]] && icon="❌"
-        [[ "$status" == "completed" && "$conclusion" == "cancelled" ]] && icon="🔘"
+        [[ "$run_status" == "completed" && "$conclusion" == "success" ]] && icon="✅"
+        [[ "$run_status" == "completed" && "$conclusion" == "failure" ]] && icon="❌"
+        [[ "$run_status" == "completed" && "$conclusion" == "cancelled" ]] && icon="🔘"
 
-        printf "%-15s | %-10s | %-25s\n" "$name" "$icon ${status:0:7}" "${current_step:0:25}"
+        printf "%-15s | %-10s | %-25s\n" "$name" "$icon ${run_status:0:7}" "${current_step:0:25}"
     done
 
     echo "============================================================"
