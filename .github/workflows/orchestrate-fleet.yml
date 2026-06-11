@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Trigger Builders
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
           builders=(
             "xbmc-build"
