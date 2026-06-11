@@ -11,13 +11,18 @@ env:
 
 jobs:
   build-linux:
-    name: Build Linux (Ubuntu)
+    name: Build Linux (${{ matrix.branch }})
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['master', 'Omega']
     steps:
       - name: Checkout Kodi Source
         uses: actions/checkout@v4
         with:
           repository: xbmc/xbmc
+          ref: ${{ matrix.branch }}
           path: kodi-source
           fetch-depth: 1
 
@@ -33,9 +38,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-ccache-${{ github.sha }}
+          key: ${{ runner.os }}-${{ matrix.branch }}-ccache-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-ccache-
+            ${{ runner.os }}-${{ matrix.branch }}-ccache-
 
       - name: Configure CMake
         run: |
@@ -51,7 +56,7 @@ jobs:
       - name: Create Standalone Archive
         run: |
           DESTDIR=install_dir cmake --install build
-          tar -czf kodi-linux-standalone.tar.gz -C install_dir .
+          tar -czf kodi-linux-${{ matrix.branch }}-standalone.tar.gz -C install_dir .
 
       - name: Create DEB and RPM Packages
         run: |
@@ -64,20 +69,25 @@ jobs:
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-packages
+          name: linux-packages-${{ matrix.branch }}
           path: |
             *.deb
             *.rpm
             *.tar.gz
 
   build-windows:
-    name: Build Windows
+    name: Build Windows (${{ matrix.branch }})
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['master', 'Omega']
     steps:
       - name: Checkout Kodi Source
         uses: actions/checkout@v4
         with:
           repository: xbmc/xbmc
+          ref: ${{ matrix.branch }}
           path: kodi-source
           fetch-depth: 1
 
@@ -98,31 +108,45 @@ jobs:
         shell: pwsh
         run: |
           cmake --install build --prefix install_win --config Release
-          Compress-Archive -Path install_win\* -DestinationPath kodi-windows-standalone.zip
+          Compress-Archive -Path install_win\* -DestinationPath kodi-windows-${{ matrix.branch }}-standalone.zip
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-packages
+          name: windows-packages-${{ matrix.branch }}
           path: |
             build/Release/*.exe
             build/Release/*.msi
             *.zip
 
   create-release:
-    name: Create GitHub Release
+    name: Create GitHub Release (${{ matrix.branch }})
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ['master', 'Omega']
     steps:
       - name: Checkout code (to get version.txt)
         uses: actions/checkout@v4
         with:
           repository: xbmc/xbmc
+          ref: ${{ matrix.branch }}
           path: kodi-source
           fetch-depth: 1
 
-      - name: Download all artifacts
+      - name: Download Linux Artifacts
         uses: actions/download-artifact@v4
+        with:
+          name: linux-packages-${{ matrix.branch }}
+          path: linux-packages
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-packages-${{ matrix.branch }}
+          path: windows-packages
 
       - name: Get Version
         id: get_version
@@ -133,8 +157,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.get_version.outputs.version }}
-          name: Kodi Build ${{ steps.get_version.outputs.version }}
+          tag_name: v${{ steps.get_version.outputs.version }}-${{ matrix.branch }}
+          name: Kodi Build ${{ steps.get_version.outputs.version }} (${{ matrix.branch }})
           files: |
             linux-packages/*.deb
             linux-packages/*.rpm
