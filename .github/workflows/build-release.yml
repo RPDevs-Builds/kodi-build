@@ -1,0 +1,139 @@
+name: Build and Release Kodi
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-linux:
+    name: Build Linux (Ubuntu)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: kodi-build
+
+      - name: Checkout Kodi Source
+        uses: actions/checkout@v4
+        with:
+          repository: xbmc/xbmc
+          path: kodi-source
+          fetch-depth: 1
+
+      - name: Install Build Dependencies
+        run: |
+          sudo add-apt-repository -s ppa:team-xbmc/xbmc-nightly -y
+          sudo apt update
+          sudo apt build-dep kodi -y
+          sudo apt install -y rpm ruby ruby-dev rubygems build-essential
+          sudo gem install --no-document fpm
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cmake -S kodi-source -B build \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DAPP_RENDER_SYSTEM=gl
+
+      - name: Build Kodi
+        run: cmake --build build -- -j$(nproc)
+
+      - name: Create Standalone Archive
+        run: |
+          DESTDIR=install_dir cmake --install build
+          tar -czf kodi-linux-standalone.tar.gz -C install_dir .
+
+      - name: Create DEB and RPM Packages
+        run: |
+          # Create a dummy install for FPM
+          mkdir -p pkg_root
+          DESTDIR=$(pwd)/pkg_root cmake --install build
+          
+          VERSION=$(grep "VERSION_CODE" kodi-source/version.txt | awk '{print $2}')
+          
+          fpm -s dir -t deb -n kodi -v "$VERSION" -C pkg_root usr/
+          fpm -s dir -t rpm -n kodi -v "$VERSION" -C pkg_root usr/
+
+      - name: Upload Linux Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            *.deb
+            *.rpm
+            *.tar.gz
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Kodi Source
+        uses: actions/checkout@v4
+        with:
+          repository: xbmc/xbmc
+          path: kodi-source
+          fetch-depth: 1
+
+      - name: Configure and Build
+        shell: pwsh
+        run: |
+          mkdir build
+          cmake -S kodi-source -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Create Standalone Zip
+        shell: pwsh
+        run: |
+          cmake --install build --prefix install_win --config Release
+          Compress-Archive -Path install_win\* -DestinationPath kodi-windows-standalone.zip
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: |
+            build/Release/*.exe
+            build/Release/*.msi
+            *.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (to get version.txt)
+        uses: actions/checkout@v4
+        with:
+          repository: xbmc/xbmc
+          path: kodi-source
+          fetch-depth: 1
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Get Version
+        id: get_version
+        run: |
+          VERSION=$(grep "VERSION_CODE" kodi-source/version.txt | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Kodi Build ${{ steps.get_version.outputs.version }}
+          files: |
+            linux-packages/*.deb
+            linux-packages/*.rpm
+            linux-packages/*.tar.gz
+            windows-packages/*.zip
+            windows-packages/*.exe
+            windows-packages/*.msi
+          draft: false
+          prerelease: true
