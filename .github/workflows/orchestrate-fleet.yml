@@ -1,0 +1,58 @@
+name: Orchestrate Build Fleet 🚢
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build across the fleet'
+        required: true
+        default: 'Piers'
+        type: choice
+        options:
+          - Piers
+          - Omega
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  trigger-fleet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Builders
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          builders=(
+            "xbmc-build"
+            "repo-plugins-build"
+            "repo-scripts-build"
+            "repo-scrapers-build"
+            "inputstream.ffmpegdirect-build"
+            "inputstream.adaptive-build"
+          )
+          
+          # Map Hub branch names to Spoke branch inputs
+          TARGET_BRANCH="${{ github.event.inputs.branch }}"
+          
+          for repo in "${builders[@]}"; do
+            echo "🚀 Triggering build for $repo ($TARGET_BRANCH)..."
+            gh workflow run build.yml \
+              --repo "IamRPDev/$repo" \
+              --ref main \
+              -f branch_input="$TARGET_BRANCH"
+          done
+
+      - name: Report Status
+        run: |
+          echo "### Build Fleet Orchestration Started 🚢" >> $GITHUB_STEP_SUMMARY
+          echo "The following builders have been triggered for the **${{ github.event.inputs.branch }}** branch:" >> $GITHUB_STEP_SUMMARY
+          echo "- Kodi Core (xbmc-build)" >> $GITHUB_STEP_SUMMARY
+          echo "- Plugins (repo-plugins-build)" >> $GITHUB_STEP_SUMMARY
+          echo "- Scripts (repo-scripts-build)" >> $GITHUB_STEP_SUMMARY
+          echo "- Scrapers (repo-scrapers-build)" >> $GITHUB_STEP_SUMMARY
+          echo "- FFmpegDirect (inputstream.ffmpegdirect-build)" >> $GITHUB_STEP_SUMMARY
+          echo "- Adaptive (inputstream.adaptive-build)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Monitor progress via the [Kodi Build Hub README](https://github.com/IamRPDev/kodi-build#build--distribution-status)." >> $GITHUB_STEP_SUMMARY
