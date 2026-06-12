@@ -114,4 +114,69 @@ A real-time dashboard that uses parallel background `gh run list` calls to provi
 - **Pre-bake Dependencies**: Avoid `sudo apt install` during workflow runs on self-hosted runners. This prevents "no new privileges" errors and significantly reduces build time.
 - **Explicit Platform Flags**: Kodi's `configure` script often fails to auto-detect cross-compile targets. Always provide `--with-platform` and `--host` explicitly.
 - **Version Alignment**: Keep the Dockerized runner version synced with GitHub's latest (e.g., `2.335.1`) to avoid startup delays due to self-updates.
-- **Organization Registration**: Register runners at the **Organization level**, not the Repository level. This allows any builder in the fleet to pick up the job immediately.
+---
+
+## 6. Build Workflow Breakdown (`build.yml`)
+
+The following is the core logic used across all Builder repositories. Each section is annotated with the technical reasoning behind its design.
+
+### 6.1 Matrix Orchestration
+```yaml
+setup-matrix:
+  runs-on: ubuntu-latest
+  outputs:
+    matrix: ${{ steps.set-matrix.outputs.matrix }}
+  steps:
+    - id: set-matrix
+      run: |
+        # Dynamically handles the 'both' branch input from the Hub
+        if [ "${{ github.event.inputs.branch_input }}" == "both" ]; then
+          echo 'matrix={"branch": ["Piers", "Omega"], "platform": ["linux64", "win64", "android-arm64", "osx64"]}' >> $GITHUB_OUTPUT
+        else
+          echo 'matrix={"branch": ["${{ github.event.inputs.branch_input }}"], "platform": ["linux64", "win64", "android-arm64", "osx64"]}' >> $GITHUB_OUTPUT
+        fi
+```
+**Note**: We use a pre-job to generate the matrix. This allows the Hub to trigger a single workflow that fans out into 8+ independent build jobs.
+
+### 6.2 Host-Aware Runner Selection
+```yaml
+runs-on: ${{ (matrix.platform == 'osx64' && 'macos-latest') || (matrix.platform == 'linux64' && fromJSON('["self-hosted", "linux64"]')) || fromJSON('["self-hosted", "lightweight"]') }}
+```
+**Note**: This ternary logic intelligently routes jobs. `osx64` must use GitHub's macOS runners (required for Xcode), while `linux64` (heavy C++) and other platforms (lightweight packaging) use specific local runner pools.
+
+### 6.3 Conditional Dependency Management
+```yaml
+- name: Install System Dependencies
+  if: ${{ !contains(runner.labels, 'self-hosted') }}
+  run: |
+    # Only runs on GitHub-hosted runners (macOS)
+    # Self-hosted Docker runners have these pre-baked to avoid 'no new privileges' errors
+    sudo apt update && sudo apt install -y ...
+```
+**Note**: This is critical for security. We avoid `sudo` in Docker containers during the workflow, relying instead on the pre-built image state.
+
+### 6.4 The Unified Build Loop
+```bash
+if [ "${{ matrix.platform }}" == "linux64" ]; then
+  # Native build for the host OS
+  cmake ../source/xbmc -DCMAKE_INSTALL_PREFIX=../$OUT_DIR -DAPP_RENDER_SYSTEM=gl
+  make -j$(nproc) install
+else
+  # Cross-compilation using the internal 'depends' system
+  cd source/xbmc/tools/depends
+  ./bootstrap
+  ./configure --prefix=$(pwd)/../../../../xbmc-deps $CONFIG_FLAGS
+  make -j$(nproc)
+  cd ../../../
+  # Use the generated dependencies for the main Kodi build
+  cmake ../source/xbmc -DCMAKE_INSTALL_PREFIX=../$OUT_DIR -DCMAKE_PREFIX_PATH=$(pwd)/../xbmc-deps
+fi
+```
+**Note**: This "Double-Pass" build (Depends first, then App) guarantees that regardless of the host OS, we have the exact library versions required by the target platform.
+
+### 6.5 Remote Dispatch
+```bash
+DIST_REPO="RPDevs-Builds/xbmc-build-${{ matrix.platform }}"
+gh release create "$TAG" $FILE --repo "$DIST_REPO" ...
+```
+**Note**: Using the `gh` CLI with a cross-repository `GH_PAT` allows a Builder to "push" its success directly to its designated Distributor repository, completing the tiered lifecycle.
