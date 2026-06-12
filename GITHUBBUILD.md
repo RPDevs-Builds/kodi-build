@@ -180,3 +180,51 @@ DIST_REPO="RPDevs-Builds/xbmc-build-${{ matrix.platform }}"
 gh release create "$TAG" $FILE --repo "$DIST_REPO" ...
 ```
 **Note**: Using the `gh` CLI with a cross-repository `GH_PAT` allows a Builder to "push" its success directly to its designated Distributor repository, completing the tiered lifecycle.
+
+---
+
+## 7. Fleet Monitoring (`monitor.zsh`)
+
+The `monitor.zsh` script provides a real-time, terminal-based dashboard for the entire organization. It is optimized for speed and high-density information display.
+
+### 7.1 Parallel Data Fetching
+```zsh
+tmp_file=$(mktemp)
+for entry in "${builders[@]}"; do
+    fetch_status "$entry" >> "$tmp_file" &
+done
+wait
+```
+**Note**: The script iterates through the list of builder repositories and launches a background job (`&`) for each. This allows the dashboard to query GitHub's API for 30+ repositories in parallel, significantly reducing the refresh time from minutes to seconds.
+
+### 7.2 Matrix Status Extraction
+```zsh
+local jobs_data=$(gh run view --repo RPDevs-Builds/$repo $id --json jobs 2>/dev/null)
+
+# Platform Matrix Logic
+local p_linux=$(echo $jobs_data | jq -r '.jobs[] | select(.name | contains("linux64")) | "\(.status)|\(.conclusion)"')
+local p_win=$(echo $jobs_data | jq -r '.jobs[] | select(.name | contains("win64")) | "\(.status)|\(.conclusion)"')
+...
+```
+**Note**: Instead of just showing "success" or "failure" for the whole run, the script parses the individual jobs within the workflow. This allows the dashboard to display the status of each OS (Linux, Windows, Android, OSX) in a compact grid using `jq`.
+
+### 7.3 Visual Formatting (Zsh Colors)
+```zsh
+GREEN='%F{green}'
+RED='%F{red}'
+YELLOW='%F{yellow}'
+BLUE='%F{blue}'
+NC='%f' 
+
+format_job() {
+    ...
+    [[ "$c" == "success" ]] && echo "${GREEN}●${NC}" || echo "${RED}●${NC}"
+}
+```
+**Note**: We use native Zsh color escape sequences (`%F{color}`) rather than standard ANSI codes. This ensures a cleaner implementation and prevents visual glitches when resizing terminal windows.
+
+### 7.4 Active Step Detection
+```zsh
+local current_step=$(echo $jobs_data | jq -r '.jobs[] | select(.name != "setup-matrix") | .steps[] | select(.status != "completed") | .name' | head -n 1)
+```
+**Note**: The dashboard dynamically identifies which step is currently executing (e.g., "Build and Package") across all platforms. This provides immediate insight into where a build is stuck without needing to visit the GitHub web UI.
