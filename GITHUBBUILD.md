@@ -6,7 +6,17 @@ This guide details the multi-tiered GitHub build system used for high-performanc
 
 ## 1. Architecture Overview
 
-The fleet operates across three distinct repository tiers to ensure separation of concerns and avoid resource exhaustion in a single repository.
+The fleet operates across three distinct repository tiers. This high-complexity model is specifically designed for large projects (e.g., Kodi Core) where a single repository would face rate limits or resource exhaustion.
+
+### 1.1 Decision Rationale: Why a Tiered System?
+- **Isolation of Heavy Builds**: C++ builds for 4+ operating systems can trigger GitHub Actions concurrent job limits. Moving them to individual "Builder" repos provides independent job queues.
+- **Artifact Management**: Large binary assets can bloat the `.git` history of a primary repo. Using separate "Distributor" repositories keeps the Hub and Builders lean and responsive.
+- **OS-Level Granularity**: When a build fails on one OS (e.g., macOS code-signing), it doesn't block the release cycle or CI/CD pipelines of the Hub or other platforms.
+
+### 1.2 Scale & Justification: When is this Overkill?
+**Warning**: This system carries significant maintenance overhead (API-driven updates, 30+ repositories).
+- **Use this if**: You are building a complex project for **3+ Operating Systems**, have build times exceeding **1 hour**, or need to host **multi-gigabyte binary releases**.
+- **Avoid this if**: You are building a web app, a single-OS binary, or a small library. A single repository with standard Matrix jobs is sufficient for 95% of projects.
 
 ### Tier 1: The Hub (`kodi-build`)
 - **Role**: Command and Control.
@@ -56,14 +66,17 @@ We use a unified build approach centered around Kodi's internal `depends` system
 
 ## 3. Local Runner Infrastructure (The "Runner Farm")
 
-To support long-running C++ builds (2+ hours), we utilize organization-level self-hosted runners.
+### 3.1 Rationale: Why Self-Hosted?
+- **Unlimited Build Time**: GitHub-hosted runners have a 6-hour limit and are billed per minute. Heavy C++ builds are more cost-effective on local high-IO hardware.
+- **Pre-Caching**: We "pre-bake" multi-gigabyte SDKs (Android, MinGW) into Docker images. This eliminates download/extract time (approx. 15 mins saved per run) compared to hosted runners.
+- **Full Environment Control**: Some platforms (like Android) require specific system-level tweaks that are restricted on GitHub's shared runners.
 
-### Dockerized Environment
-- **Images**:
-    - `linux-builder`: Full C++, Android SDK/NDK, MinGW, and Node.js.
-    - `addon-builder`: Lightweight Python/Node environment.
-- **Key Requirement**: **Node.js 20+** must be pre-baked into the image. Standard GitHub Actions (`checkout`, `cache`) will fail or hang without a Node runtime.
-- **Security**: Runners are configured to run as a non-root `runner` user but with `NOPASSWD:ALL` sudo access for internal build steps.
+### 3.2 Tools Used
+- **GitHub CLI (`gh`)**: Core for repository creation, API interaction, and release management.
+- **Docker & Docker Compose**: Isolates build environments and standardizes runner deployment.
+- **Python (with `subprocess` & `base64`)**: Used for "Mass Management"—automating code changes across 30+ repositories via the GitHub API.
+- **`yq`**: Parses the `sources.yaml` manifest to dynamically generate build matrices.
+- **`ccache`**: Drastically reduces incremental build times by caching C++ object files across runs.
 
 ### Deployment (`docker-compose.yml`)
 ```yaml
