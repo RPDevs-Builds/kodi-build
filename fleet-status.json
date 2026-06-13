@@ -22,5 +22,11 @@
     "conclusion": "success",
     "url": "https://github.com/RPDevs-Builds/repo-plugins-build/actions/runs/27455463943",
     "timestamp": "2026-06-13T03:40:59Z"
+  },
+  "inputstream.ffmpegdirect-build": {
+    "status": "success",
+    "conclusion": "success",
+    "url": "https://github.com/RPDevs-Builds/inputstream.ffmpegdirect-build/actions/runs/27455465593",
+    "timestamp": "2026-06-13T03:41:44Z"
   }
 }
