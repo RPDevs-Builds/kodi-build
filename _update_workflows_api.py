@@ -15,6 +15,7 @@ builders = [
 def update_workflow(repo_name, display_name, comp_id, is_core):
     print(f"Updating workflow for: {repo_name}")
     is_cpp = "inputstream" in comp_id or is_core
+    is_cpp_js = "true" if is_cpp else "false"
     
     if is_core:
         dispatch_logic = f"""
@@ -30,10 +31,11 @@ def update_workflow(repo_name, display_name, comp_id, is_core):
         dispatch_logic = f"""
           # Create local release in this repo
           gh release create "$TAG" $FILE \\
+            --repo "RPDevs-Builds/{repo_name}" \\
             --title "{display_name} ${{{{ matrix.branch }}}} Build $TAG" \\
             --notes "Automated build for ${{{{ matrix.platform }}}}." \\
             --prerelease || \\
-          gh release upload "$TAG" $FILE --clobber
+          gh release upload "$TAG" $FILE --repo "RPDevs-Builds/{repo_name}" --clobber
 """
 
     workflow_content = f"""name: Build and Dispatch {display_name}
@@ -77,11 +79,22 @@ jobs:
       fail-fast: false
       matrix: ${{{{ fromJson(needs.setup-matrix.outputs.matrix) }}}}
     name: Build ${{{{ matrix.branch }}}} on ${{{{ matrix.platform }}}}
-    runs-on: ${{{{ (matrix.platform == 'osx64' && 'macos-latest') || (matrix.platform == 'linux64' && fromJSON('["self-hosted", "linux64"]')) || fromJSON('["self-hosted", "lightweight"]') }}}}
+    runs-on: ${{{{ (matrix.platform == 'osx64' && 'macos-latest') || ({is_cpp_js} && fromJSON('["self-hosted", "linux64"]')) || fromJSON('["self-hosted", "lightweight"]') }}}}
     defaults:
       run:
         shell: bash
     steps:
+      - name: Environment Validation (Pre-Flight)
+        run: |
+          echo "🔍 Running pre-flight checks..."
+          if [[ "${{{{ matrix.platform }}}}" != "osx64" ]]; then
+            ccache -s || echo "⚠️ ccache not available or failing"
+            gh auth status || echo "⚠️ gh cli auth issue"
+          fi
+          if [[ "${{{{ matrix.platform }}}}" == "android-arm64" ]]; then
+            ls -ld /opt/android-sdk/ndk/25.2.9519653 || exit 1
+          fi
+
       - name: Checkout Source
         uses: actions/checkout@v4
         with:
@@ -91,22 +104,15 @@ jobs:
           fetch-depth: 1
 
       - name: Install System Dependencies
-        if: ${{{{ !contains(runner.labels, 'self-hosted') }}}}
+        if: ${{{{ matrix.platform == 'osx64' }}}}
         run: |
-          if [ "${{{{ runner.os }}}}" == "Linux" ]; then
-            sudo apt update
-            sudo apt install -y build-essential autoconf automake autopoint gettext cmake curl gawk gperf python3-dev libtool zip unzip libudev-dev libdrm-dev libgbm-dev libasound2-dev libpulse-dev libva-dev libvdpau-dev libxml2-dev libxslt1-dev libsqlite3-dev libcurl4-openssl-dev libssl-dev libbluray-dev libcdio-dev libiso9660-dev liblzo2-dev libpcre3-dev libmysqlclient-dev libcap-dev libfribidi-dev libfontconfig1-dev libfreetype6-dev libass-dev libdbus-1-dev libsystemd-dev libavahi-client-dev libavahi-common-dev libmicrohttpd-dev libtinyxml-dev libyajl-dev libplist-dev libnfs-dev libshairplay-dev libsmbclient-dev libfmt-dev libspdlog-dev libflatbuffers-dev
-            if [ "${{{{ matrix.platform }}}}" == "linux64" ]; then
-              sudo apt install -y libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxrender-dev libxss-dev libgl1-mesa-dev
-            fi
-          elif [ "${{{{ runner.os }}}}" == "Windows" ]; then
-            choco install cmake ninja nasm zip -y
-          elif [ "${{{{ runner.os }}}}" == "macOS" ]; then
-            brew install cmake ninja nasm
-          fi
+          brew install cmake ninja nasm gettext coreutils groff
 
       - name: Build and Package
         run: |
+          # Clean previous artifacts for self-hosted consistency
+          rm -rf build xbmc-deps compiled
+          
           # Get Version for directory structure
           if [ -f source/{comp_id}/version.txt ]; then
             VERSION=$(grep "VERSION_CODE" source/{comp_id}/version.txt | awk '{{print $2}}')
@@ -116,33 +122,79 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           
           # Target Directory: ./compiled/os/version/
-          OUT_DIR="compiled/${{{{ matrix.platform }}}}/$VERSION"
+          OUT_DIR="${{{{ github.workspace }}}}/compiled/${{{{ matrix.platform }}}}/$VERSION"
           mkdir -p "$OUT_DIR"
           echo "OUT_DIR=$OUT_DIR" >> $GITHUB_ENV
 
           if [ "{is_cpp}" == "True" ]; then
             echo "🚀 Performing C++ Build for ${{{{ matrix.platform }}}}..."
             if [ "{comp_id}" == "xbmc" ]; then
-              # All Core platforms use depends for consistency
-              cd source/xbmc/tools/depends
-              ./bootstrap
-              case "${{{{ matrix.platform }}}}" in
-                win64) export CONFIG_FLAGS="--host=x86_64-w64-mingw32 --with-platform=windows" ;;
-                android-arm64) export CONFIG_FLAGS="--host=aarch64-linux-android --with-platform=android --with-sdk=/opt/android-sdk --with-ndk=/opt/android-sdk/ndk-bundle" ;;
-                osx64) export CONFIG_FLAGS="--with-platform=macos" ;;
-                linux64) export CONFIG_FLAGS="--with-platform=linux --with-rendersystem=gl" ;;
-              esac
-              ./configure --prefix=$(pwd)/../../../../xbmc-deps $CONFIG_FLAGS
-              make -j$(nproc || sysctl -n hw.ncpu)
-              cd ../../../
-              mkdir build && cd build
-              cmake ../source/xbmc -DCMAKE_INSTALL_PREFIX=../$OUT_DIR -DCMAKE_PREFIX_PATH=$(pwd)/../xbmc-deps
-              make -j$(nproc || sysctl -n hw.ncpu) install
+              if [ "${{{{ matrix.platform }}}}" == "linux64" ]; then
+                mkdir build && cd build
+                cmake ${{{{ github.workspace }}}}/source/xbmc -DCMAKE_INSTALL_PREFIX="$OUT_DIR" -DAPP_RENDER_SYSTEM=gl \\
+                  -DENABLE_INTERNAL_FFMPEG=ON -DENABLE_INTERNAL_EXIV2=ON -DENABLE_INTERNAL_DAV1D=ON \\
+                  -DENABLE_INTERNAL_FSTRCMP=ON -DENABLE_INTERNAL_FLATBUFFERS=ON -DENABLE_INTERNAL_UDFREAD=ON \\
+                  -DENABLE_INTERNAL_SPDLOG=ON -DENABLE_INTERNAL_FMT=ON -DENABLE_INTERNAL_NLOHMANNJSON=ON \\
+                  -DENABLE_INTERNAL_RAPIDJSON=ON -DENABLE_INTERNAL_CROSSGUID=ON -DENABLE_INTERNAL_TAGLIB=ON \\
+                  -DENABLE_INTERNAL_LZO2=ON -DENABLE_INTERNAL_PCRE2=ON -DENABLE_INTERNAL_TINYXML2=ON \\
+                  -DENABLE_INTERNAL_SQLITE3=ON -DENABLE_INTERNAL_CURL=ON -DENABLE_INTERNAL_ASS=ON \\
+                  -DENABLE_INTERNAL_LCMS2=ON -DENABLE_INTERNAL_PLIST=ON
+                make -j$(nproc || sysctl -n hw.ncpu) install
+              elif [ "${{{{ matrix.platform }}}}" == "win64" ]; then
+                echo "⚠️ Windows Core build via depends is not supported on Linux. Skipping."
+                exit 0
+              else
+                # Download pre-compiled depends or fallback to cross-compilation
+                echo "⬇️ Downloading Pre-compiled Depends..."
+                DEPENDS_BRANCH="${{{{ matrix.branch == 'Piers' && 'master' || 'Omega' }}}}"
+                TAG="depends-${{{{ matrix.platform }}}}-$DEPENDS_BRANCH"
+                gh release download "$TAG" --repo "RPDevs-Builds/kodi-build" --pattern "depends-${{{{ matrix.platform }}}}.tar.gz" --dir . || echo "⚠️ Pre-compiled depends not found. Falling back to build..."
+                
+                if [ -f "depends-${{{{ matrix.platform }}}}.tar.gz" ]; then
+                  echo "✅ Extracting Depends..."
+                  mkdir -p ${{{{ github.workspace }}}}/xbmc-deps
+                  tar -xzf depends-${{{{ matrix.platform }}}}.tar.gz -C ${{{{ github.workspace }}}}/xbmc-deps
+                else
+                  cd source/xbmc/tools/depends
+                  ./bootstrap
+                  case "${{{{ matrix.platform }}}}" in
+                    android-arm64) export CONFIG_FLAGS="--host=aarch64-linux-android --with-sdk-path=/opt/android-sdk --with-ndk-path=/opt/android-sdk/ndk/25.2.9519653" ;;
+                    osx64) 
+                      export CONFIG_FLAGS="--with-platform=macos"
+                      export PATH="$(brew --prefix gettext)/bin:$(brew --prefix coreutils)/libexec/gnubin:$PATH"
+                      ;;
+                  esac
+                  ./configure --prefix=${{{{ github.workspace }}}}/xbmc-deps $CONFIG_FLAGS
+                  make -j$(nproc || sysctl -n hw.ncpu)
+                fi
+                cd ${{{{ github.workspace }}}}
+                mkdir build && cd build
+                cmake ${{{{ github.workspace }}}}/source/xbmc -DCMAKE_INSTALL_PREFIX="$OUT_DIR" -DCMAKE_PREFIX_PATH=${{{{ github.workspace }}}}/xbmc-deps
+                make -j$(nproc || sysctl -n hw.ncpu) install
+              fi
             else
               # Addon C++ Build
+              if [ "${{{{ matrix.platform }}}}" == "win64" ]; then
+                 echo "⚠️ Windows cross-compiling addons not fully supported yet. Skipping."
+                 exit 0
+              fi
+              if [ "${{{{ matrix.platform }}}}" != "linux64" ]; then
+                echo "⬇️ Downloading Pre-compiled Depends for Addon..."
+                DEPENDS_BRANCH="${{{{ matrix.branch == 'Piers' && 'master' || 'Omega' }}}}"
+                TAG="depends-${{{{ matrix.platform }}}}-$DEPENDS_BRANCH"
+                gh release download "$TAG" --repo "RPDevs-Builds/kodi-build" --pattern "depends-${{{{ matrix.platform }}}}.tar.gz" --dir . || echo "⚠️ Pre-compiled depends not found."
+                
+                if [ -f "depends-${{{{ matrix.platform }}}}.tar.gz" ]; then
+                  echo "✅ Extracting Depends..."
+                  mkdir -p ${{{{ github.workspace }}}}/xbmc-deps
+                  tar -xzf depends-${{{{ matrix.platform }}}}.tar.gz -C ${{{{ github.workspace }}}}/xbmc-deps
+                else
+                  echo "⚠️ Cannot cross-compile addon without KodiConfig.cmake from depends. Skipping."
+                  exit 0
+                fi
+              fi
               mkdir build && cd build
-              # Try to find KodiConfig.cmake if it was built in a previous step or provided
-              cmake ../source/{comp_id} -DCMAKE_INSTALL_PREFIX=../$OUT_DIR -DKodi_DIR=$(pwd)/../xbmc-deps/lib/kodi
+              cmake ${{{{ github.workspace }}}}/source/{comp_id} -DCMAKE_INSTALL_PREFIX="$OUT_DIR" -DCMAKE_PREFIX_PATH=${{{{ github.workspace }}}}/xbmc-deps
               make -j$(nproc || sysctl -n hw.ncpu) install
             fi
           else
@@ -153,6 +205,10 @@ jobs:
 
       - name: Create Archive
         run: |
+          if [ ! -d "$OUT_DIR" ] || [ -z "$(ls -A $OUT_DIR)" ]; then
+            echo "Empty directory, skipping archive."
+            exit 0
+          fi
           TAG="v-${{{{ env.VERSION }}}}-${{{{ matrix.branch }}}}"
           echo "TAG=$TAG" >> $GITHUB_ENV
           FILENAME="{comp_id}-${{{{ matrix.platform }}}}-${{{{ env.VERSION }}}}-${{{{ matrix.branch }}}}"
@@ -169,8 +225,8 @@ jobs:
         env:
           GH_TOKEN: ${{{{ secrets.GH_PAT }}}}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "GH_PAT secret not found. Skipping release step."
+          if [ -z "$GH_TOKEN" ] || [ -z "$FILE" ]; then
+            echo "GH_PAT secret not found or file missing. Skipping release step."
             exit 0
           fi
           {dispatch_logic}

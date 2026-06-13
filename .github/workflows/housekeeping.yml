@@ -1,0 +1,43 @@
+name: Automated Workspace Housekeeping
+
+on:
+  schedule:
+    - cron: '0 3 * * 0' # Every Sunday at 3 AM UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup-heavy:
+    name: Clean Heavy Runner (Linux64)
+    runs-on: [self-hosted, linux64]
+    steps:
+      - name: Prune Docker and Workspaces
+        run: |
+          echo "🧹 Cleaning Docker system..."
+          # Prune unused containers, networks, images, and volumes (optional)
+          docker system prune -af --volumes || true
+          
+          echo "🧹 Cleaning _work directory..."
+          # Clean old github runner work directories to prevent disk exhaustion
+          # Since this runs inside the runner container, we clean the mounted _work safely.
+          # Keep the current directory (the checkout for this workflow) intact.
+          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" -exec rm -rf {} + || true
+          
+          echo "🧹 Clearing ccache stats..."
+          ccache -c || true
+          ccache -z || true
+
+  cleanup-light:
+    name: Clean Lightweight Runner
+    runs-on: [self-hosted, lightweight]
+    steps:
+      - name: Prune Docker and Workspaces
+        run: |
+          echo "🧹 Cleaning Docker system..."
+          docker system prune -af --volumes || true
+          
+          echo "🧹 Cleaning _work directory..."
+          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" -exec rm -rf {} + || true
+          
+          echo "🧹 Clearing ccache stats..."
+          ccache -c || true
+          ccache -z || true
