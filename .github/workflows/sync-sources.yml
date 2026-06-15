@@ -29,15 +29,16 @@ jobs:
             dest=$(echo $entry | cut -d'|' -f3)
 
             echo "Syncing Source: $name from $url to $dest"
-            if [ -d "$dest/.git" ]; then
-              git -C "$dest" pull
-            else
-              mkdir -p "$(dirname "$dest")"
-              git clone "$url" "$dest"
+            if [ -d "$dest" ]; then
+              echo "Removing existing directory $dest"
+              rm -rf "$dest"
             fi
+            mkdir -p "$(dirname "$dest")"
+            git clone "$url" "$dest"
+
             # Remove .git folder so it can be committed as files, not a gitlink
             rm -rf "$dest/.git"
-          done
+            done
 
       - name: Commit changes
         run: |
