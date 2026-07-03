@@ -102,6 +102,7 @@ jobs:
         run: |
           cd kodi-source\tools\buildsteps\windows\x64
           download-dependencies.bat
+          download-msys2.bat
 
       - name: Configure and Build
         shell: pwsh
