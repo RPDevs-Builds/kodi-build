@@ -31,7 +31,7 @@ jobs:
           sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt update
           sudo apt build-dep kodi -y
-          sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache libdisplay-info-dev libpcre3-dev libexiv2-dev
+          sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache libdisplay-info-dev libpcre3-dev libexiv2-dev libtinyxml2-dev
           sudo gem install --no-document fpm
 
       - name: Setup Cache
