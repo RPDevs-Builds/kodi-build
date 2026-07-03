@@ -48,7 +48,8 @@ jobs:
           cmake -S kodi-source -B build \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DAPP_RENDER_SYSTEM=gl \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DENABLE_INTERNAL_FFMPEG=ON
 
       - name: Build Kodi
         run: cmake --build build -- -j$(nproc)
@@ -90,6 +91,11 @@ jobs:
           ref: ${{ matrix.branch }}
           path: kodi-source
           fetch-depth: 1
+
+      - name: Apply Custom Patches
+        shell: bash
+        run: |
+          sed -i 's|CONFIGURE_COMMAND ${pkgconf} ${pkgconf_path}|CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${pkgconf} ${pkgconf_path}|g' kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt
 
       - name: Install Dependencies
         shell: pwsh
