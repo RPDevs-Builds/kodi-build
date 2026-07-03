@@ -28,7 +28,7 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          sudo add-apt-repository -s ppa:team-xbmc/xbmc-nightly -y
+          sudo sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
           sudo apt update
           sudo apt build-dep kodi -y
           sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache libdisplayinfo-dev
