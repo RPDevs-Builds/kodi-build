@@ -12,7 +12,7 @@ env:
 jobs:
   build-linux:
     name: Build Linux (${{ matrix.branch }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -31,7 +31,7 @@ jobs:
           sudo add-apt-repository -s ppa:team-xbmc/xbmc-nightly -y
           sudo apt update
           sudo apt build-dep kodi -y
-          sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache
+          sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache libdisplayinfo-dev
           sudo gem install --no-document fpm
 
       - name: Setup Cache
@@ -96,6 +96,12 @@ jobs:
         run: |
           pip install meson
           choco install pkgconfiglite -y
+
+      - name: Download Windows Dependencies
+        shell: cmd
+        run: |
+          cd kodi-source\tools\buildsteps\windows\x64
+          download-dependencies.bat
 
       - name: Configure and Build
         shell: pwsh
