@@ -127,6 +127,12 @@ jobs:
           call download-dependencies.bat
           call download-msys2.bat
 
+      - name: Set up MSVC Developer Command Prompt
+        if: matrix.branch == 'Omega'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Build MinGW Libraries (FFmpeg) for Omega
         if: matrix.branch == 'Omega'
         shell: pwsh
