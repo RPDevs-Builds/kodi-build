@@ -109,7 +109,8 @@ jobs:
             kodi-source/project/BuildDependencies/downloads
             kodi-source/project/BuildDependencies/downloads2
             kodi-source/project/BuildDependencies/msys64
-          key: windows-${{ matrix.branch }}-deps-${{ hashFiles('kodi-source/project/BuildDependencies/scripts/get_formed.cmd') }}
+            kodi-source/project/BuildDependencies/mingwlibs
+          key: windows-${{ matrix.branch }}-deps-${{ hashFiles('kodi-source/project/BuildDependencies/scripts/get_formed.cmd', 'kodi-source/tools/depends/target/ffmpeg/FFMPEG-VERSION') }}
           restore-keys: |
             windows-${{ matrix.branch }}-deps-
 
@@ -126,6 +127,29 @@ jobs:
           call download-dependencies.bat
           call download-msys2.bat
 
+      - name: Build MinGW Libraries (FFmpeg) for Omega
+        if: matrix.branch == 'Omega'
+        shell: pwsh
+        run: |
+          $libPath = "kodi-source/project/BuildDependencies/mingwlibs/x64/lib/avcodec.lib"
+          if (Test-Path $libPath) {
+            Write-Host "FFmpeg libraries already found in cache. Skipping build."
+          } else {
+            Write-Host "FFmpeg libraries not found. Building..."
+            cd kodi-source\tools\buildsteps\windows
+            cmd /c "make-mingwlibs.bat sh noprompt build64"
+          }
+
+      - name: Patch FindFFMPEG.cmake (Omega only)
+        if: matrix.branch == 'Omega'
+        shell: pwsh
+        run: |
+          $filePath = "kodi-source/cmake/modules/FindFFMPEG.cmake"
+          $content = Get-Content $filePath -Raw
+          $content = $content.Replace('HINTS ${DEPENDS_PATH}/lib ${PC_FFMPEG_${libname}_LIBDIR}', 'HINTS ${DEPENDS_PATH}/lib ${MINGW_LIBS_DIR}/lib ${PC_FFMPEG_${libname}_LIBDIR}')
+          $content = $content.Replace('HINTS ${DEPENDS_PATH}/include', 'HINTS ${DEPENDS_PATH}/include ${MINGW_LIBS_DIR}/include')
+          Set-Content $filePath $content
+
       - name: Configure and Build
         shell: pwsh
         run: |
@@ -137,9 +161,11 @@ jobs:
             "-A", "x64"
           )
           # Master branch: enable internal FFmpeg (uses MSYS2 build path)
-          # Omega branch: use pre-built FFmpeg from download-dependencies.bat
+          # Omega branch: use pre-built FFmpeg from make-mingwlibs
           if ("${{ matrix.branch }}" -eq "master") {
             $cmakeArgs += "-DENABLE_INTERNAL_FFMPEG=ON"
+          } else {
+            $cmakeArgs += "-DENABLE_INTERNAL_FFMPEG=OFF"
           }
           cmake @cmakeArgs
           cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
