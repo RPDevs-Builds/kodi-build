@@ -34,21 +34,30 @@ jobs:
           sudo apt install -y rpm ruby ruby-dev rubygems build-essential ccache libdisplay-info-dev libpcre3-dev libexiv2-dev libtinyxml2-dev nasm
           sudo gem install --no-document fpm
 
-      - name: Setup Cache
+      - name: Setup ccache
         uses: actions/cache@v4
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ matrix.branch }}-ccache-${{ github.sha }}
+          key: linux-${{ matrix.branch }}-ccache-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.branch }}-ccache-
+            linux-${{ matrix.branch }}-ccache-
+
+      - name: Cache Linux Build Dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/build/download
+          key: linux-${{ matrix.branch }}-deps-${{ hashFiles('kodi-source/cmake/modules/Find*.cmake') }}
+          restore-keys: |
+            linux-${{ matrix.branch }}-deps-
 
       - name: Configure CMake
         run: |
-          mkdir build
+          mkdir -p build
           cmake -S kodi-source -B build \
             -DCMAKE_INSTALL_PREFIX=/usr \
             -DAPP_RENDER_SYSTEM=gl \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DENABLE_INTERNAL_FFMPEG=ON \
             -DENABLE_INTERNAL_NLOHMANNJSON=ON
 
@@ -93,10 +102,16 @@ jobs:
           path: kodi-source
           fetch-depth: 1
 
-      - name: Apply Custom Patches
-        shell: bash
-        run: |
-          sed -i 's|CONFIGURE_COMMAND ${pkgconf} ${pkgconf_path}|CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${pkgconf} ${pkgconf_path}|g' kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt
+      - name: Cache Windows Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            kodi-source/project/BuildDependencies/downloads
+            kodi-source/project/BuildDependencies/downloads2
+            kodi-source/project/BuildDependencies/msys64
+          key: windows-${{ matrix.branch }}-deps-${{ hashFiles('kodi-source/project/BuildDependencies/scripts/get_formed.cmd') }}
+          restore-keys: |
+            windows-${{ matrix.branch }}-deps-
 
       - name: Install Dependencies
         shell: pwsh
@@ -115,7 +130,18 @@ jobs:
         shell: pwsh
         run: |
           mkdir build
-          cmake -S kodi-source -B build -G "Visual Studio 17 2022" -A x64 -DENABLE_INTERNAL_FFMPEG=ON
+          $cmakeArgs = @(
+            "-S", "kodi-source",
+            "-B", "build",
+            "-G", "Visual Studio 17 2022",
+            "-A", "x64"
+          )
+          # Master branch: enable internal FFmpeg (uses MSYS2 build path)
+          # Omega branch: use pre-built FFmpeg from download-dependencies.bat
+          if ("${{ matrix.branch }}" -eq "master") {
+            $cmakeArgs += "-DENABLE_INTERNAL_FFMPEG=ON"
+          }
+          cmake @cmakeArgs
           cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
 
       - name: Create Standalone Zip
