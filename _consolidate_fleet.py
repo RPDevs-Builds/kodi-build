@@ -2,10 +2,18 @@ import os
 import subprocess
 import shutil
 
-# Set up GIT_ASKPASS to handle the passphrase
+# Set up GIT_ASKPASS to handle the token/passphrase
+token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+if not token:
+    res = subprocess.run("gh auth token", shell=True, capture_output=True, text=True)
+    if res.returncode == 0:
+        token = res.stdout.strip()
+if not token:
+    token = "Molp;sYrd;s"
+
 askpass_path = os.path.abspath(".git_askpass_consolidation.sh")
 with open(askpass_path, "w") as f:
-    f.write("#!/bin/bash\necho 'Molp;sYrd;s'\n")
+    f.write(f"#!/bin/bash\necho '{token}'\n")
 os.chmod(askpass_path, 0o755)
 
 env = os.environ.copy()
@@ -15,7 +23,6 @@ env["DISPLAY"] = ":0"
 env["GIT_TERMINAL_PROMPT"] = "0"
 
 def run(cmd, cwd=None):
-    # Use -c to pass the command to bash and ensure env is respected
     return subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True, env=env)
 
 builders = [
