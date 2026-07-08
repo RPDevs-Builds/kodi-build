@@ -20,7 +20,7 @@ jobs:
           # Clean old github runner work directories to prevent disk exhaustion
           # Since this runs inside the runner container, we clean the mounted _work safely.
           # Keep the current directory (the checkout for this workflow) intact.
-          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" -exec rm -rf {} + || true
+          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" ! -name "_actions" ! -name "_temp" ! -name "_tool" -exec rm -rf {} + || true
           
           echo "🧹 Clearing ccache stats..."
           ccache -c || true
@@ -36,7 +36,7 @@ jobs:
           docker system prune -af --volumes || true
           
           echo "🧹 Cleaning _work directory..."
-          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" -exec rm -rf {} + || true
+          find /home/runner/_work -mindepth 1 -maxdepth 1 -type d ! -name "kodi-build" ! -name "_actions" ! -name "_temp" ! -name "_tool" -exec rm -rf {} + || true
           
           echo "🧹 Clearing ccache stats..."
           ccache -c || true

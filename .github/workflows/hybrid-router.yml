@@ -1,0 +1,89 @@
+name: Hybrid Router
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      branch:
+        required: true
+        type: string
+    secrets:
+      GH_TOKEN:
+        required: true
+
+jobs:
+  # ---------------------------------------------------------
+  # STATIC ROUTING (macOS cannot be escalated to Linux)
+  # ---------------------------------------------------------
+  build-static:
+    if: inputs.platform == 'osx64'
+    runs-on: macos-latest
+    steps:
+      - uses: ./.github/actions/build-depends-payload
+        with:
+          platform: ${{ inputs.platform }}
+          branch: ${{ inputs.branch }}
+          gh_token: ${{ secrets.GH_TOKEN }}
+
+  # ---------------------------------------------------------
+  # DYNAMIC ESCALATION (Linux Jobs)
+  # ---------------------------------------------------------
+  determine-tier:
+    if: inputs.platform != 'osx64'
+    runs-on: ubuntu-latest
+    outputs:
+      start_tier: ${{ steps.calc.outputs.tier }}
+    steps:
+      - name: Calculate Historical Duration
+        id: calc
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Fetch the last 5 successful runs of this workflow
+          # For demonstration/pilot, we will query the API for the average duration.
+          RUNS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-depends.yml/runs?status=success&per_page=5")
+          
+          # We extract the run durations (updated_at - created_at)
+          AVG_DUR=0
+          # Real logic would calculate the average here. For this pilot, if no data exists, we assume < 15m.
+          # We'll set the default tier to 'hosted' to allow the 15-minute timeout to test escalation.
+          echo "tier=hosted" >> $GITHUB_OUTPUT
+
+  try-hosted:
+    needs: determine-tier
+    if: needs.determine-tier.outputs.start_tier == 'hosted'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: ./.github/actions/build-depends-payload
+        with:
+          platform: ${{ inputs.platform }}
+          branch: ${{ inputs.branch }}
+          gh_token: ${{ secrets.GH_TOKEN }}
+
+  try-medium:
+    needs: [determine-tier, try-hosted]
+    if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'medium' || needs.try-hosted.result == 'failure')
+    runs-on: [self-hosted, linux64, medium]
+    timeout-minutes: 15
+    steps:
+      - uses: ./.github/actions/build-depends-payload
+        with:
+          platform: ${{ inputs.platform }}
+          branch: ${{ inputs.branch }}
+          gh_token: ${{ secrets.GH_TOKEN }}
+
+  try-heavy:
+    needs: [determine-tier, try-medium]
+    if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'heavy' || needs.try-medium.result == 'failure')
+    runs-on: [self-hosted, linux64, heavy]
+    timeout-minutes: 360
+    steps:
+      - uses: ./.github/actions/build-depends-payload
+        with:
+          platform: ${{ inputs.platform }}
+          branch: ${{ inputs.branch }}
+          gh_token: ${{ secrets.GH_TOKEN }}
