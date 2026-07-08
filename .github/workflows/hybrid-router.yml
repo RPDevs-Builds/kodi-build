@@ -67,7 +67,9 @@ jobs:
   try-medium:
     needs: [determine-tier, try-hosted]
     if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'medium' || needs.try-hosted.result == 'failure')
-    runs-on: [self-hosted, linux64, medium]
+    runs-on:
+      group: Linux-Builders
+      labels: [self-hosted, linux64, medium]
     timeout-minutes: 15
     steps:
       - uses: ./.github/actions/build-depends-payload
@@ -79,7 +81,9 @@ jobs:
   try-heavy:
     needs: [determine-tier, try-medium]
     if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'heavy' || needs.try-medium.result == 'failure')
-    runs-on: [self-hosted, linux64, heavy]
+    runs-on:
+      group: Linux-Builders
+      labels: [self-hosted, linux64, heavy]
     timeout-minutes: 360
     steps:
       - uses: ./.github/actions/build-depends-payload
