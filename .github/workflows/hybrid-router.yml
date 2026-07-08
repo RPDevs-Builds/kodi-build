@@ -14,48 +14,53 @@ on:
         required: true
 
 jobs:
-  # ---------------------------------------------------------
-  # STATIC ROUTING (macOS cannot be escalated to Linux)
-  # ---------------------------------------------------------
-  build-static:
-    if: inputs.platform == 'osx64'
-    runs-on: macos-latest
-    steps:
-      - uses: ./.github/actions/build-depends-payload
-        with:
-          platform: ${{ inputs.platform }}
-          branch: ${{ inputs.branch }}
-          gh_token: ${{ secrets.GH_TOKEN }}
-
-  # ---------------------------------------------------------
-  # DYNAMIC ESCALATION (Linux Jobs)
-  # ---------------------------------------------------------
   determine-tier:
-    if: inputs.platform != 'osx64'
     runs-on: ubuntu-latest
     outputs:
       start_tier: ${{ steps.calc.outputs.tier }}
+      runner_group: ${{ steps.calc.outputs.runner_group }}
+      os_label: ${{ steps.calc.outputs.os_label }}
+      hosted_runner: ${{ steps.calc.outputs.hosted_runner }}
     steps:
-      - name: Calculate Historical Duration
+      - name: Calculate OS Targets and Escalation Tier
         id: calc
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          # Fetch the last 5 successful runs of this workflow
-          # For demonstration/pilot, we will query the API for the average duration.
-          RUNS_JSON=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-depends.yml/runs?status=success&per_page=5")
+          PLATFORM="${{ inputs.platform }}"
           
-          # We extract the run durations (updated_at - created_at)
-          AVG_DUR=0
-          # Real logic would calculate the average here. For this pilot, if no data exists, we assume < 15m.
-          # We'll set the default tier to 'hosted' to allow the 15-minute timeout to test escalation.
+          # OS Targeting Convention
+          case "$PLATFORM" in
+            android* | linux*)
+              echo "runner_group=Linux-Builders" >> $GITHUB_OUTPUT
+              echo "os_label=linux64" >> $GITHUB_OUTPUT
+              echo "hosted_runner=ubuntu-latest" >> $GITHUB_OUTPUT
+              ;;
+            osx* | ios* | tvos*)
+              echo "runner_group=macOS-Builders" >> $GITHUB_OUTPUT
+              echo "os_label=macos" >> $GITHUB_OUTPUT
+              echo "hosted_runner=macos-latest" >> $GITHUB_OUTPUT
+              ;;
+            windows*)
+              echo "runner_group=Windows-Builders" >> $GITHUB_OUTPUT
+              echo "os_label=windows" >> $GITHUB_OUTPUT
+              echo "hosted_runner=windows-latest" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "runner_group=Linux-Builders" >> $GITHUB_OUTPUT
+              echo "os_label=linux64" >> $GITHUB_OUTPUT
+              echo "hosted_runner=ubuntu-latest" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+          # Calculate historical duration for tier escalation
+          # For demonstration/pilot, we will default to 'hosted' to allow the timeout fallback cascade.
           echo "tier=hosted" >> $GITHUB_OUTPUT
 
   try-hosted:
     needs: determine-tier
     if: needs.determine-tier.outputs.start_tier == 'hosted'
-    runs-on: ubuntu-latest
+    runs-on: ${{ needs.determine-tier.outputs.hosted_runner }}
     timeout-minutes: 15
     steps:
       - uses: ./.github/actions/build-depends-payload
@@ -66,10 +71,10 @@ jobs:
 
   try-medium:
     needs: [determine-tier, try-hosted]
-    if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'medium' || needs.try-hosted.result == 'failure')
+    if: always() && (needs.determine-tier.outputs.start_tier == 'medium' || needs.try-hosted.result == 'failure')
     runs-on:
-      group: Linux-Builders
-      labels: [self-hosted, linux64, medium]
+      group: ${{ needs.determine-tier.outputs.runner_group }}
+      labels: [self-hosted, '${{ needs.determine-tier.outputs.os_label }}', medium]
     timeout-minutes: 15
     steps:
       - uses: ./.github/actions/build-depends-payload
@@ -80,10 +85,10 @@ jobs:
 
   try-heavy:
     needs: [determine-tier, try-medium]
-    if: always() && inputs.platform != 'osx64' && (needs.determine-tier.outputs.start_tier == 'heavy' || needs.try-medium.result == 'failure')
+    if: always() && (needs.determine-tier.outputs.start_tier == 'heavy' || needs.try-medium.result == 'failure')
     runs-on:
-      group: Linux-Builders
-      labels: [self-hosted, linux64, heavy]
+      group: ${{ needs.determine-tier.outputs.runner_group }}
+      labels: [self-hosted, '${{ needs.determine-tier.outputs.os_label }}', heavy]
     timeout-minutes: 360
     steps:
       - uses: ./.github/actions/build-depends-payload
