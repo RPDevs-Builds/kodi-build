@@ -21,10 +21,61 @@ runs:
         ref: ${{ inputs.branch == 'Piers' && 'master' || inputs.branch }}
         path: source/xbmc
 
-    - name: Install macOS Dependencies
-      if: ${{ inputs.platform == 'osx64' }}
+    - name: Check Local Cache Availability
+      id: check-cache
       shell: bash
-      run: brew install cmake ninja nasm gettext coreutils groff
+      run: |
+        if [ -d "/mnt/sharedroot/github_runners/shared" ]; then
+          echo "USE_LOCAL_CACHE=true" >> $GITHUB_ENV
+        else
+          echo "USE_LOCAL_CACHE=false" >> $GITHUB_ENV
+        fi
+
+    - name: Link Local Depends Archive
+      if: ${{ env.USE_LOCAL_CACHE == 'true' }}
+      shell: bash
+      run: |
+        mkdir -p source/xbmc/tools/depends
+        mkdir -p /mnt/sharedroot/github_runners/shared/kodi-depends
+        ln -sf /mnt/sharedroot/github_runners/shared/kodi-depends source/xbmc/tools/depends/archive
+
+    - name: Setup Cache (Depends Archive)
+      if: ${{ env.USE_LOCAL_CACHE != 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: source/xbmc/tools/depends/archive
+        key: kodi-depends-archive-${{ inputs.platform }}-${{ inputs.branch }}-${{ github.run_id }}
+        restore-keys: |
+          kodi-depends-archive-${{ inputs.platform }}-${{ inputs.branch }}-
+          kodi-depends-archive-${{ inputs.platform }}-
+
+    - name: Link Local ccache
+      if: ${{ env.USE_LOCAL_CACHE == 'true' }}
+      shell: bash
+      run: |
+        mkdir -p /mnt/sharedroot/github_runners/shared/ccache
+        echo "CCACHE_DIR=/mnt/sharedroot/github_runners/shared/ccache" >> $GITHUB_ENV
+
+    - name: Setup ccache Cache
+      if: ${{ env.USE_LOCAL_CACHE != 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: ccache-${{ inputs.platform }}-${{ inputs.branch }}-${{ github.sha }}
+        restore-keys: |
+          ccache-${{ inputs.platform }}-${{ inputs.branch }}-
+          ccache-${{ inputs.platform }}-
+
+    - name: Install System Dependencies
+      shell: bash
+      env:
+        HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
+      run: |
+        if [ "$RUNNER_OS" == "Linux" ]; then
+          sudo apt-get update && sudo apt-get install -y ccache || true
+        elif [ "$RUNNER_OS" == "macOS" ]; then
+          brew install cmake ninja nasm gettext coreutils groff ccache || true
+        fi
 
     - name: Build Depends
       shell: bash
@@ -33,11 +84,12 @@ runs:
         cd source/xbmc/tools/depends
         ./bootstrap
         case "${{ inputs.platform }}" in
-          android-arm64) export CONFIG_FLAGS="--host=aarch64-linux-android --with-sdk-path=/opt/android-sdk --with-ndk-path=/opt/android-sdk/ndk/25.2.9519653" ;;
+          android-arm64) export CONFIG_FLAGS="--host=aarch64-linux-android --with-sdk-path=/opt/android-sdk --with-ndk-path=/opt/android-sdk/ndk/25.2.9519653 --enable-ccache" ;;
           osx64) 
-            export CONFIG_FLAGS="--with-platform=macos"
+            export CONFIG_FLAGS="--with-platform=macos --enable-ccache"
             export PATH="$(brew --prefix gettext)/bin:$(brew --prefix coreutils)/libexec/gnubin:$PATH"
             ;;
+          *) export CONFIG_FLAGS="--enable-ccache" ;;
         esac
         ./configure --prefix=${{ github.workspace }}/xbmc-deps $CONFIG_FLAGS
         make -j$(nproc || sysctl -n hw.ncpu)
